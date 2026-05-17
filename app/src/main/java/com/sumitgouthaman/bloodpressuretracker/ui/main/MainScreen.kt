@@ -10,7 +10,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -119,6 +122,7 @@ fun DashboardScreen(
     var measurementLocation by remember { mutableStateOf(initialRecord?.measurementLocation ?: BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_WRIST) }
     var measurementLocationExpanded by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Record Blood Pressure", style = MaterialTheme.typography.headlineMedium)
@@ -129,14 +133,28 @@ fun DashboardScreen(
                 value = systolic,
                 onValueChange = { systolic = it },
                 label = { Text("Systolic") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Next) }
+                ),
                 modifier = Modifier.weight(1f)
             )
             OutlinedTextField(
                 value = diastolic,
                 onValueChange = { diastolic = it },
                 label = { Text("Diastolic") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { focusManager.clearFocus() }
+                ),
                 modifier = Modifier.weight(1f)
             )
         }
