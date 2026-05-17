@@ -43,10 +43,10 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
         }
     }
 
-    fun saveBloodPressure(systolic: Double, diastolic: Double) {
+    fun saveBloodPressure(systolic: Double, diastolic: Double, bodyPosition: Int, measurementLocation: Int) {
         viewModelScope.launch {
             try {
-                healthConnectManager.writeBloodPressure(systolic, diastolic)
+                healthConnectManager.writeBloodPressure(systolic, diastolic, bodyPosition, measurementLocation)
                 loadRecords() // Reload records after saving
             } catch (e: Exception) {
                 _uiState.value = MainScreenUiState.Error(e)

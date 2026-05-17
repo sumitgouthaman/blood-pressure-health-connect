@@ -75,7 +75,7 @@ fun MainScreen(
             is MainScreenUiState.Dashboard -> {
                 DashboardScreen(
                     records = uiState.records,
-                    onSave = { systolic, diastolic -> viewModel.saveBloodPressure(systolic, diastolic) }
+                    onSave = { systolic, diastolic, pos, loc -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc) }
                 )
             }
             is MainScreenUiState.Error -> {
@@ -87,13 +87,37 @@ fun MainScreen(
     }
 }
 
+object BpLabels {
+    val bodyPositions = mapOf(
+        BloodPressureRecord.BODY_POSITION_UNKNOWN to "Unknown",
+        BloodPressureRecord.BODY_POSITION_STANDING_UP to "Standing",
+        BloodPressureRecord.BODY_POSITION_SITTING_DOWN to "Sitting",
+        BloodPressureRecord.BODY_POSITION_LYING_DOWN to "Lying Down",
+        BloodPressureRecord.BODY_POSITION_RECLINING to "Reclining"
+    )
+
+    val measurementLocations = mapOf(
+        BloodPressureRecord.MEASUREMENT_LOCATION_UNKNOWN to "Unknown",
+        BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_WRIST to "Left Wrist",
+        BloodPressureRecord.MEASUREMENT_LOCATION_RIGHT_WRIST to "Right Wrist",
+        BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_UPPER_ARM to "Left Arm",
+        BloodPressureRecord.MEASUREMENT_LOCATION_RIGHT_UPPER_ARM to "Right Arm"
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     records: List<BloodPressureRecord>,
-    onSave: (Double, Double) -> Unit
+    onSave: (Double, Double, Int, Int) -> Unit
 ) {
     var systolic by remember { mutableStateOf("") }
     var diastolic by remember { mutableStateOf("") }
+    val initialRecord = records.firstOrNull()
+    var bodyPosition by remember { mutableStateOf(initialRecord?.bodyPosition ?: BloodPressureRecord.BODY_POSITION_SITTING_DOWN) }
+    var bodyPositionExpanded by remember { mutableStateOf(false) }
+    var measurementLocation by remember { mutableStateOf(initialRecord?.measurementLocation ?: BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_WRIST) }
+    var measurementLocationExpanded by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -104,17 +128,79 @@ fun DashboardScreen(
             OutlinedTextField(
                 value = systolic,
                 onValueChange = { systolic = it },
-                label = { Text("Systolic (mmHg)") },
+                label = { Text("Systolic") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.weight(1f)
             )
             OutlinedTextField(
                 value = diastolic,
                 onValueChange = { diastolic = it },
-                label = { Text("Diastolic (mmHg)") },
+                label = { Text("Diastolic") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.weight(1f)
             )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            ExposedDropdownMenuBox(
+                expanded = bodyPositionExpanded,
+                onExpandedChange = { bodyPositionExpanded = it },
+                modifier = Modifier.weight(1f)
+            ) {
+                OutlinedTextField(
+                    readOnly = true,
+                    value = BpLabels.bodyPositions[bodyPosition] ?: "Unknown",
+                    onValueChange = { },
+                    label = { Text("Posture") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = bodyPositionExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = bodyPositionExpanded,
+                    onDismissRequest = { bodyPositionExpanded = false }
+                ) {
+                    BpLabels.bodyPositions.forEach { (key, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                bodyPosition = key
+                                bodyPositionExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            ExposedDropdownMenuBox(
+                expanded = measurementLocationExpanded,
+                onExpandedChange = { measurementLocationExpanded = it },
+                modifier = Modifier.weight(1f)
+            ) {
+                OutlinedTextField(
+                    readOnly = true,
+                    value = BpLabels.measurementLocations[measurementLocation] ?: "Unknown",
+                    onValueChange = { },
+                    label = { Text("Location") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = measurementLocationExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = measurementLocationExpanded,
+                    onDismissRequest = { measurementLocationExpanded = false }
+                ) {
+                    BpLabels.measurementLocations.forEach { (key, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                measurementLocation = key
+                                measurementLocationExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
         }
         Spacer(modifier = Modifier.height(16.dp))
         Button(
@@ -122,7 +208,7 @@ fun DashboardScreen(
                 val sys = systolic.toDoubleOrNull()
                 val dia = diastolic.toDoubleOrNull()
                 if (sys != null && dia != null) {
-                    onSave(sys, dia)
+                    onSave(sys, dia, bodyPosition, measurementLocation)
                     systolic = ""
                     diastolic = ""
                 }
@@ -154,6 +240,12 @@ fun BloodPressureCard(record: BloodPressureRecord) {
             Text(
                 text = "${record.systolic.inMillimetersOfMercury.toInt()} / ${record.diastolic.inMillimetersOfMercury.toInt()} mmHg",
                 style = MaterialTheme.typography.titleLarge
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "${BpLabels.measurementLocations[record.measurementLocation]} • ${BpLabels.bodyPositions[record.bodyPosition]}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(

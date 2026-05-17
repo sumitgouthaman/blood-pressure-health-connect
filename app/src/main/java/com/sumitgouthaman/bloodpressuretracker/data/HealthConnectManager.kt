@@ -29,7 +29,7 @@ class HealthConnectManager(private val context: Context) {
         return granted.containsAll(permissions)
     }
 
-    suspend fun writeBloodPressure(systolic: Double, diastolic: Double) {
+    suspend fun writeBloodPressure(systolic: Double, diastolic: Double, bodyPosition: Int, measurementLocation: Int) {
         val time = Instant.now()
         val zoneOffset = ZoneOffset.systemDefault().rules.getOffset(time)
 
@@ -38,8 +38,8 @@ class HealthConnectManager(private val context: Context) {
             zoneOffset = zoneOffset,
             systolic = Pressure.millimetersOfMercury(systolic),
             diastolic = Pressure.millimetersOfMercury(diastolic),
-            bodyPosition = BloodPressureRecord.BODY_POSITION_SITTING_DOWN,
-            measurementLocation = BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_WRIST
+            bodyPosition = bodyPosition,
+            measurementLocation = measurementLocation
         )
 
         healthConnectClient.insertRecords(listOf(record))
