@@ -120,6 +120,7 @@ fun DashboardScreen(
 ) {
     var systolic by remember { mutableStateOf("") }
     var diastolic by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val initialRecord = records.firstOrNull()
     var bodyPosition by remember { mutableStateOf(initialRecord?.bodyPosition ?: BloodPressureRecord.BODY_POSITION_SITTING_DOWN) }
     var bodyPositionExpanded by remember { mutableStateOf(false) }
@@ -135,9 +136,15 @@ fun DashboardScreen(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             OutlinedTextField(
                 value = systolic,
-                onValueChange = { systolic = it },
+                onValueChange = { 
+                    if (it.all { char -> char.isDigit() }) {
+                        systolic = it
+                        errorMessage = null
+                    }
+                },
                 label = { Text("Systolic") },
                 singleLine = true,
+                isError = errorMessage != null,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Next
@@ -149,9 +156,15 @@ fun DashboardScreen(
             )
             OutlinedTextField(
                 value = diastolic,
-                onValueChange = { diastolic = it },
+                onValueChange = { 
+                    if (it.all { char -> char.isDigit() }) {
+                        diastolic = it
+                        errorMessage = null
+                    }
+                },
                 label = { Text("Diastolic") },
                 singleLine = true,
+                isError = errorMessage != null,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Done
@@ -160,6 +173,14 @@ fun DashboardScreen(
                     onDone = { focusManager.clearFocus() }
                 ),
                 modifier = Modifier.weight(1f)
+            )
+        }
+        if (errorMessage != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -229,10 +250,18 @@ fun DashboardScreen(
             onClick = {
                 val sys = systolic.toDoubleOrNull()
                 val dia = diastolic.toDoubleOrNull()
-                if (sys != null && dia != null) {
+                if (sys == null || dia == null) {
+                    errorMessage = "Please enter both values."
+                } else if (sys <= dia) {
+                    errorMessage = "Systolic must be greater than Diastolic."
+                } else if (sys < 50 || sys > 300 || dia < 30 || dia > 200) {
+                    errorMessage = "Please enter realistic values."
+                } else {
+                    errorMessage = null
                     onSave(sys, dia, bodyPosition, measurementLocation)
                     systolic = ""
                     diastolic = ""
+                    focusManager.clearFocus()
                 }
             },
             modifier = Modifier.align(Alignment.End)
