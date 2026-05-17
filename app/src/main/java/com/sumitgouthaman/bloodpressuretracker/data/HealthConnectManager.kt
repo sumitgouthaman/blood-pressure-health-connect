@@ -57,4 +57,12 @@ class HealthConnectManager(private val context: Context) {
         val response = healthConnectClient.readRecords(request)
         return response.records.sortedByDescending { it.time }
     }
+
+    suspend fun deleteBloodPressure(recordId: String) {
+        healthConnectClient.deleteRecords(
+            recordType = BloodPressureRecord::class,
+            recordIdsList = listOf(recordId),
+            clientRecordIdsList = emptyList()
+        )
+    }
 }

@@ -53,6 +53,17 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
             }
         }
     }
+
+    fun deleteRecord(recordId: String) {
+        viewModelScope.launch {
+            try {
+                healthConnectManager.deleteBloodPressure(recordId)
+                loadRecords()
+            } catch (e: Exception) {
+                _uiState.value = MainScreenUiState.Error(e)
+            }
+        }
+    }
 }
 
 sealed interface MainScreenUiState {

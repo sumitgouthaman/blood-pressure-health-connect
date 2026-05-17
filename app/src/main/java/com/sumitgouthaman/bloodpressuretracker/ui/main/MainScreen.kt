@@ -14,6 +14,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.background
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -78,7 +80,8 @@ fun MainScreen(
             is MainScreenUiState.Dashboard -> {
                 DashboardScreen(
                     records = uiState.records,
-                    onSave = { systolic, diastolic, pos, loc -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc) }
+                    onSave = { systolic, diastolic, pos, loc -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc) },
+                    onDelete = { id -> viewModel.deleteRecord(id) }
                 )
             }
             is MainScreenUiState.Error -> {
@@ -112,7 +115,8 @@ object BpLabels {
 @Composable
 fun DashboardScreen(
     records: List<BloodPressureRecord>,
-    onSave: (Double, Double, Int, Int) -> Unit
+    onSave: (Double, Double, Int, Int) -> Unit,
+    onDelete: (String) -> Unit
 ) {
     var systolic by remember { mutableStateOf("") }
     var diastolic by remember { mutableStateOf("") }
@@ -240,9 +244,42 @@ fun DashboardScreen(
         Text("Recent History", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(8.dp))
         
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(records) { record ->
-                BloodPressureCard(record)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(records, key = { it.metadata.id }) { record ->
+                val dismissState = rememberSwipeToDismissBoxState(
+                    confirmValueChange = {
+                        if (it == SwipeToDismissBoxValue.EndToStart) {
+                            onDelete(record.metadata.id)
+                            true
+                        } else false
+                    }
+                )
+                
+                SwipeToDismissBox(
+                    state = dismissState,
+                    modifier = Modifier.fillMaxWidth(),
+                    enableDismissFromStartToEnd = false,
+                    backgroundContent = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.error, MaterialTheme.shapes.medium),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Text(
+                                text = "Delete",
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(end = 16.dp),
+                                color = MaterialTheme.colorScheme.onError
+                            )
+                        }
+                    }
+                ) {
+                    BloodPressureCard(record)
+                }
             }
         }
     }
@@ -253,11 +290,16 @@ fun BloodPressureCard(record: BloodPressureRecord) {
     val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault())
     val timeStr = formatter.format(record.time)
     
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = "${record.systolic.inMillimetersOfMercury.toInt()} / ${record.diastolic.inMillimetersOfMercury.toInt()} mmHg",
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
