@@ -11,8 +11,8 @@ android {
         applicationId = "com.sumitgouthaman.bloodpressuretracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.4"
     }
 
     buildTypes {
@@ -84,4 +84,10 @@ dependencies {
 
   // Health Connect
   implementation(libs.androidx.health.connect)
+
+  // ML Kit GenAI Prompt
+  implementation(libs.mlkit.genai.prompt)
+
+  // Compose Icons Extended
+  implementation("androidx.compose.material:material-icons-extended")
 }

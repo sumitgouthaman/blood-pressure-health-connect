@@ -1,11 +1,21 @@
 package com.sumitgouthaman.bloodpressuretracker.ui.main
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.net.Uri
+import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.records.BloodPressureRecord
@@ -81,7 +92,8 @@ fun MainScreen(
                 DashboardScreen(
                     records = uiState.records,
                     onSave = { systolic, diastolic, pos, loc -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc) },
-                    onDelete = { id -> viewModel.deleteRecord(id) }
+                    onDelete = { id -> viewModel.deleteRecord(id) },
+                    viewModel = viewModel
                 )
             }
             is MainScreenUiState.Error -> {
@@ -116,7 +128,8 @@ object BpLabels {
 fun DashboardScreen(
     records: List<BloodPressureRecord>,
     onSave: (Double, Double, Int, Int) -> Unit,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    viewModel: MainScreenViewModel
 ) {
     var systolic by remember { mutableStateOf("") }
     var diastolic by remember { mutableStateOf("") }
@@ -129,8 +142,152 @@ fun DashboardScreen(
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
+    val aiStatus by viewModel.aiStatus.collectAsStateWithLifecycle()
+    val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
+    val scanError by viewModel.scanError.collectAsStateWithLifecycle()
+    val modelName by viewModel.modelName.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
+    var photoFile by remember { mutableStateOf<File?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { success ->
+            if (success) {
+                photoUri?.let { uri ->
+                    try {
+                        val bitmap = loadDownscaledBitmap(context, uri)
+                        viewModel.scanBloodPressure(bitmap) { sys, dia ->
+                            systolic = sys.toInt().toString()
+                            diastolic = dia.toInt().toString()
+                            errorMessage = null
+                        }
+                    } catch (e: Exception) {
+                        // Scan error is handled by viewmodel
+                    } finally {
+                        try {
+                            photoFile?.delete()
+                        } catch (e: Exception) {
+                            // Ignored
+                        }
+                    }
+                }
+            } else {
+                try {
+                    photoFile?.delete()
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
+        }
+    )
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Record Blood Pressure", style = MaterialTheme.typography.headlineMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Record Blood Pressure", style = MaterialTheme.typography.headlineMedium)
+            
+            when (val currentStatus = aiStatus) {
+                is AiStatus.Available -> {
+                    IconButton(
+                        onClick = {
+                            viewModel.clearScanError()
+                            try {
+                                val file = File(context.cacheDir, "bp_scan_temp.jpg")
+                                photoFile = file
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                photoUri = uri
+                                cameraLauncher.launch(uri)
+                            } catch (e: Exception) {
+                                // Handled
+                            }
+                        },
+                        enabled = !isScanning
+                    ) {
+                        if (isScanning) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Scan with Camera",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+                is AiStatus.Downloading -> {
+                    val megabytes = currentStatus.bytesDownloaded / 1024 / 1024
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "AI Model: ${megabytes}MB",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+                is AiStatus.Downloadable -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Preparing AI...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+                else -> {
+                    // CheckPending or Unavailable - do not show anything
+                }
+            }
+        }
+
+        if (isScanning) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "$modelName is reading your blood pressure monitor...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        if (scanError != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = scanError!!,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { viewModel.clearScanError() }) {
+                        Text("Dismiss", color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
+        }
+        
         Spacer(modifier = Modifier.height(16.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -344,4 +501,61 @@ fun BloodPressureCard(record: BloodPressureRecord) {
             )
         }
     }
+}
+
+fun loadDownscaledBitmap(context: Context, uri: Uri, maxDimension: Int = 2048): Bitmap {
+    val inputStream = context.contentResolver.openInputStream(uri)
+    val options = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+    }
+    BitmapFactory.decodeStream(inputStream, null, options)
+    inputStream?.close()
+
+    var scale = 1
+    while (options.outWidth / scale / 2 >= maxDimension && options.outHeight / scale / 2 >= maxDimension) {
+        scale *= 2
+    }
+
+    val decodeOptions = BitmapFactory.Options().apply {
+        inSampleSize = scale
+    }
+    val finalInputStream = context.contentResolver.openInputStream(uri)
+    var bitmap = BitmapFactory.decodeStream(finalInputStream, null, decodeOptions)
+    finalInputStream?.close()
+
+    if (bitmap == null) {
+        throw Exception("Failed to decode bitmap")
+    }
+
+    // Correct orientation from EXIF metadata
+    try {
+        context.contentResolver.openInputStream(uri)?.use { exifInputStream ->
+            val exif = ExifInterface(exifInputStream)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val matrix = Matrix()
+            var needsRotation = true
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                else -> needsRotation = false
+            }
+            if (needsRotation) {
+                val rotatedBitmap = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                )
+                if (rotatedBitmap != bitmap) {
+                    bitmap.recycle()
+                    bitmap = rotatedBitmap
+                }
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("BpAiScan", "Failed to apply EXIF rotation", e)
+    }
+
+    return bitmap
 }
