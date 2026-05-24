@@ -48,14 +48,16 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
     private val _selectedTimeRange = MutableStateFlow(BpTimeRange.LAST_30_DAYS)
     val selectedTimeRange: StateFlow<BpTimeRange> = _selectedTimeRange.asStateFlow()
 
-    private val generativeModel = Generation.getClient(
-        generationConfig {
-            modelConfig = modelConfig {
-                releaseStage = ModelReleaseStage.STABLE
-                preference = ModelPreference.FULL
+    private val generativeModel by lazy {
+        Generation.getClient(
+            generationConfig {
+                modelConfig = modelConfig {
+                    releaseStage = ModelReleaseStage.STABLE
+                    preference = ModelPreference.FULL
+                }
             }
-        }
-    )
+        )
+    }
 
     private val _modelName = MutableStateFlow("Gemini Nano")
     val modelName: StateFlow<String> = _modelName.asStateFlow()
@@ -106,10 +108,16 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
         }
     }
 
-    fun saveBloodPressure(systolic: Double, diastolic: Double, bodyPosition: Int, measurementLocation: Int) {
+    fun saveBloodPressure(
+        systolic: Double,
+        diastolic: Double,
+        bodyPosition: Int,
+        measurementLocation: Int,
+        time: Instant = Instant.now()
+    ) {
         viewModelScope.launch {
             try {
-                healthConnectManager.writeBloodPressure(systolic, diastolic, bodyPosition, measurementLocation)
+                healthConnectManager.writeBloodPressure(systolic, diastolic, bodyPosition, measurementLocation, time)
                 loadRecords() // Reload records after saving
             } catch (e: Exception) {
                 _uiState.value = MainScreenUiState.Error(e)

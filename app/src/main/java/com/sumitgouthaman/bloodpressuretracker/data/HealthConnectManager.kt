@@ -11,26 +11,33 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 
-class HealthConnectManager(private val context: Context) {
+open class HealthConnectManager(private val context: Context?) {
 
-    private val healthConnectClient by lazy { HealthConnectClient.getOrCreate(context) }
+    private val healthConnectClient by lazy {
+        context?.let { HealthConnectClient.getOrCreate(it) } ?: throw IllegalStateException("Context is null")
+    }
 
     val permissions = setOf(
         HealthPermission.getReadPermission(BloodPressureRecord::class),
         HealthPermission.getWritePermission(BloodPressureRecord::class)
     )
 
-    fun isSupported(): Boolean {
-        return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
+    open fun isSupported(): Boolean {
+        return context?.let { HealthConnectClient.getSdkStatus(it) == HealthConnectClient.SDK_AVAILABLE } ?: false
     }
 
-    suspend fun hasAllPermissions(): Boolean {
+    open suspend fun hasAllPermissions(): Boolean {
         val granted = healthConnectClient.permissionController.getGrantedPermissions()
         return granted.containsAll(permissions)
     }
 
-    suspend fun writeBloodPressure(systolic: Double, diastolic: Double, bodyPosition: Int, measurementLocation: Int) {
-        val time = Instant.now()
+    open suspend fun writeBloodPressure(
+        systolic: Double,
+        diastolic: Double,
+        bodyPosition: Int,
+        measurementLocation: Int,
+        time: Instant = Instant.now()
+    ) {
         val zoneOffset = ZoneOffset.systemDefault().rules.getOffset(time)
 
         val record = BloodPressureRecord(
@@ -45,7 +52,7 @@ class HealthConnectManager(private val context: Context) {
         healthConnectClient.insertRecords(listOf(record))
     }
 
-    suspend fun readRecentBloodPressureRecords(startTime: Instant): List<BloodPressureRecord> {
+    open suspend fun readRecentBloodPressureRecords(startTime: Instant): List<BloodPressureRecord> {
         val endTime = Instant.now()
         val request = ReadRecordsRequest(
             recordType = BloodPressureRecord::class,
@@ -55,7 +62,7 @@ class HealthConnectManager(private val context: Context) {
         return response.records.sortedByDescending { it.time }
     }
 
-    suspend fun deleteBloodPressure(recordId: String) {
+    open suspend fun deleteBloodPressure(recordId: String) {
         healthConnectClient.deleteRecords(
             recordType = BloodPressureRecord::class,
             recordIdsList = listOf(recordId),

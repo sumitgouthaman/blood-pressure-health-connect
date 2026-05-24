@@ -50,9 +50,13 @@ import androidx.navigation3.runtime.NavKey
 import com.sumitgouthaman.bloodpressuretracker.data.HealthConnectManager
 import kotlinx.coroutines.launch
 import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.AccessTime
 
 @Composable
 fun MainScreen(
@@ -105,7 +109,7 @@ fun MainScreen(
             is MainScreenUiState.Dashboard -> {
                 DashboardScreen(
                     records = uiState.records,
-                    onSave = { systolic, diastolic, pos, loc -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc) },
+                    onSave = { systolic, diastolic, pos, loc, time -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc, time) },
                     onDelete = { id -> viewModel.deleteRecord(id) },
                     viewModel = viewModel
                 )
@@ -141,7 +145,7 @@ object BpLabels {
 @Composable
 fun DashboardScreen(
     records: List<BloodPressureRecord>,
-    onSave: (Double, Double, Int, Int) -> Unit,
+    onSave: (Double, Double, Int, Int, Instant) -> Unit,
     onDelete: (String) -> Unit,
     viewModel: MainScreenViewModel
 ) {
@@ -280,8 +284,8 @@ fun DashboardScreen(
         ) {
             AddRecordFormSheet(
                 records = records,
-                onSave = { systolic, diastolic, pos, loc ->
-                    onSave(systolic, diastolic, pos, loc)
+                onSave = { systolic, diastolic, pos, loc, time ->
+                    onSave(systolic, diastolic, pos, loc, time)
                     showAddBottomSheet = false
                 },
                 viewModel = viewModel,
@@ -720,7 +724,7 @@ fun BloodPressureChart(
 @Composable
 fun AddRecordFormSheet(
     records: List<BloodPressureRecord>,
-    onSave: (Double, Double, Int, Int) -> Unit,
+    onSave: (Double, Double, Int, Int, Instant) -> Unit,
     viewModel: MainScreenViewModel,
     onDismiss: () -> Unit
 ) {
@@ -733,6 +737,9 @@ fun AddRecordFormSheet(
     var measurementLocation by remember { mutableStateOf(initialRecord?.measurementLocation ?: BloodPressureRecord.MEASUREMENT_LOCATION_LEFT_WRIST) }
     var measurementLocationExpanded by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    var selectedDateTime by remember { mutableStateOf(ZonedDateTime.now(ZoneId.systemDefault())) }
+    val dateFormatter = remember { DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()) }
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()) }
 
     val aiStatus by viewModel.aiStatus.collectAsStateWithLifecycle()
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
@@ -1005,6 +1012,95 @@ fun AddRecordFormSheet(
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "Measurement Date & Time",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = selectedDateTime.format(dateFormatter),
+                    onValueChange = {},
+                    label = { Text("Date") },
+                    readOnly = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select Date"
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable {
+                            val currentDateTime = selectedDateTime
+                            android.app.DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    selectedDateTime = selectedDateTime.withYear(year).withMonth(month + 1).withDayOfMonth(dayOfMonth)
+                                },
+                                currentDateTime.year,
+                                currentDateTime.monthValue - 1,
+                                currentDateTime.dayOfMonth
+                            ).show()
+                        }
+                )
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = selectedDateTime.format(timeFormatter),
+                    onValueChange = {},
+                    label = { Text("Time") },
+                    readOnly = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = "Select Time"
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable {
+                            val currentDateTime = selectedDateTime
+                            android.app.TimePickerDialog(
+                                context,
+                                { _, hourOfDay, minute ->
+                                    selectedDateTime = selectedDateTime.withHour(hourOfDay).withMinute(minute)
+                                },
+                                currentDateTime.hour,
+                                currentDateTime.minute,
+                                false // Use 12-hour format
+                            ).show()
+                        }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
         Button(
             onClick = {
@@ -1018,7 +1114,7 @@ fun AddRecordFormSheet(
                     errorMessage = "Please enter realistic values."
                 } else {
                     errorMessage = null
-                    onSave(sys, dia, bodyPosition, measurementLocation)
+                    onSave(sys, dia, bodyPosition, measurementLocation, selectedDateTime.toInstant())
                 }
             },
             modifier = Modifier.fillMaxWidth()
