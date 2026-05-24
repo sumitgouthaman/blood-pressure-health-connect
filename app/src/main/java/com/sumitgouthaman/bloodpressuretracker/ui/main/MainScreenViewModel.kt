@@ -15,6 +15,8 @@ import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import com.sumitgouthaman.bloodpressuretracker.data.HealthConnectManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +24,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 private const val TAG = "BpAiScan"
+
+enum class BpTimeRange(val displayName: String, val days: Long) {
+    LAST_30_DAYS("30 Days", 30),
+    LAST_3_MONTHS("3 Months", 90),
+    LAST_6_MONTHS("6 Months", 180),
+    LAST_YEAR("1 Year", 365)
+}
 
 sealed interface AiStatus {
     object Unavailable : AiStatus
@@ -35,6 +44,9 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
 
     private val _uiState = MutableStateFlow<MainScreenUiState>(MainScreenUiState.Loading)
     val uiState: StateFlow<MainScreenUiState> = _uiState.asStateFlow()
+
+    private val _selectedTimeRange = MutableStateFlow(BpTimeRange.LAST_30_DAYS)
+    val selectedTimeRange: StateFlow<BpTimeRange> = _selectedTimeRange.asStateFlow()
 
     private val generativeModel = Generation.getClient(
         generationConfig {
@@ -62,6 +74,11 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
         checkAiModelStatus()
     }
 
+    fun setTimeRange(range: BpTimeRange) {
+        _selectedTimeRange.value = range
+        checkHealthConnectState()
+    }
+
     fun checkHealthConnectState() {
         viewModelScope.launch {
             if (!healthConnectManager.isSupported()) {
@@ -80,7 +97,9 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
 
     private suspend fun loadRecords() {
         try {
-            val records = healthConnectManager.readRecentBloodPressureRecords()
+            val days = _selectedTimeRange.value.days
+            val startTime = Instant.now().minus(days, ChronoUnit.DAYS)
+            val records = healthConnectManager.readRecentBloodPressureRecords(startTime)
             _uiState.value = MainScreenUiState.Dashboard(records)
         } catch (e: Exception) {
             _uiState.value = MainScreenUiState.Error(e)

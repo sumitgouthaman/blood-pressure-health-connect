@@ -45,11 +45,8 @@ class HealthConnectManager(private val context: Context) {
         healthConnectClient.insertRecords(listOf(record))
     }
 
-    suspend fun readRecentBloodPressureRecords(): List<BloodPressureRecord> {
+    suspend fun readRecentBloodPressureRecords(startTime: Instant): List<BloodPressureRecord> {
         val endTime = Instant.now()
-        // Read records from the last 30 days
-        val startTime = endTime.minus(30, ChronoUnit.DAYS)
-
         val request = ReadRecordsRequest(
             recordType = BloodPressureRecord::class,
             timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
