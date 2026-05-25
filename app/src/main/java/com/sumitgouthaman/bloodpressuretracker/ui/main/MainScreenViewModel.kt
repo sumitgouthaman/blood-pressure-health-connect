@@ -136,6 +136,17 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
         }
     }
 
+    fun deleteRecords(recordIds: List<String>) {
+        viewModelScope.launch {
+            try {
+                healthConnectManager.deleteBloodPressures(recordIds)
+                loadRecords()
+            } catch (e: Exception) {
+                _uiState.value = MainScreenUiState.Error(e)
+            }
+        }
+    }
+
     private var recheckJob: kotlinx.coroutines.Job? = null
 
     private fun scheduleStatusRecheck() {

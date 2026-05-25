@@ -69,4 +69,12 @@ open class HealthConnectManager(private val context: Context?) {
             clientRecordIdsList = emptyList()
         )
     }
+
+    open suspend fun deleteBloodPressures(recordIds: List<String>) {
+        healthConnectClient.deleteRecords(
+            recordType = BloodPressureRecord::class,
+            recordIdsList = recordIds,
+            clientRecordIdsList = emptyList()
+        )
+    }
 }

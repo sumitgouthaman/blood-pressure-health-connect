@@ -48,4 +48,5 @@ private class FakeHealthConnectManager(
     time: Instant
   ) {}
   override suspend fun deleteBloodPressure(recordId: String) {}
+  override suspend fun deleteBloodPressures(recordIds: List<String>) {}
 }

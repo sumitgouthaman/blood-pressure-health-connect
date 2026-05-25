@@ -57,6 +57,12 @@ import java.time.format.FormatStyle
 import java.util.Locale
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.material.icons.filled.Delete
 
 @Composable
 fun MainScreen(
@@ -110,7 +116,7 @@ fun MainScreen(
                 DashboardScreen(
                     records = uiState.records,
                     onSave = { systolic, diastolic, pos, loc, time -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc, time) },
-                    onDelete = { id -> viewModel.deleteRecord(id) },
+                    onDelete = { ids -> viewModel.deleteRecords(ids) },
                     viewModel = viewModel
                 )
             }
@@ -141,25 +147,59 @@ object BpLabels {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(
     records: List<BloodPressureRecord>,
     onSave: (Double, Double, Int, Int, Instant) -> Unit,
-    onDelete: (String) -> Unit,
+    onDelete: (List<String>) -> Unit,
     viewModel: MainScreenViewModel
 ) {
     val selectedRange by viewModel.selectedTimeRange.collectAsStateWithLifecycle()
     var showAddBottomSheet by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+
+    if (selectedIds.isNotEmpty()) {
+        BackHandler {
+            selectedIds = emptySet()
+        }
+    }
 
     Scaffold(
+        topBar = {
+            if (selectedIds.isNotEmpty()) {
+                TopAppBar(
+                    title = { Text("${selectedIds.size} Selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { selectedIds = emptySet() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showDeleteConfirmation = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
+        },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddBottomSheet = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Record")
+            if (selectedIds.isEmpty()) {
+                FloatingActionButton(
+                    onClick = { showAddBottomSheet = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Record")
+                }
             }
         }
     ) { innerPadding ->
@@ -232,36 +272,50 @@ fun DashboardScreen(
                 }
             } else {
                 items(records, key = { it.metadata.id }) { record ->
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = {
-                            if (it == SwipeToDismissBoxValue.EndToStart) {
-                                onDelete(record.metadata.id)
-                                true
-                            } else false
-                        }
-                    )
-                    
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        modifier = Modifier.fillMaxWidth(),
-                        enableDismissFromStartToEnd = false,
-                        backgroundContent = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.error, MaterialTheme.shapes.medium),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                Text(
-                                    text = "Delete",
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    color = MaterialTheme.colorScheme.onError
-                                )
-                            }
-                        }
+                    val isSelected = selectedIds.contains(record.metadata.id)
+                    val isInSelectionMode = selectedIds.isNotEmpty()
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    if (isInSelectionMode) {
+                                        selectedIds = if (isSelected) {
+                                            selectedIds - record.metadata.id
+                                        } else {
+                                            selectedIds + record.metadata.id
+                                        }
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!isInSelectionMode) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selectedIds = setOf(record.metadata.id)
+                                    }
+                                }
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BloodPressureCard(record)
+                        if (isInSelectionMode) {
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { checked ->
+                                    selectedIds = if (checked == true) {
+                                        selectedIds + record.metadata.id
+                                    } else {
+                                        selectedIds - record.metadata.id
+                                    }
+                                },
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+
+                        BloodPressureCard(
+                            record = record,
+                            isSelected = isSelected,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -271,6 +325,49 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(80.dp))
             }
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = {
+                Text(
+                    text = if (selectedIds.size == 1) "Delete Entry?" else "Delete Entries?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (selectedIds.size == 1) {
+                        "Are you sure you want to delete this blood pressure entry?"
+                    } else {
+                        "Are you sure you want to delete the ${selectedIds.size} selected blood pressure entries?"
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete(selectedIds.toList())
+                        selectedIds = emptySet()
+                        showDeleteConfirmation = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirmation = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (showAddBottomSheet) {
@@ -1126,32 +1223,54 @@ fun AddRecordFormSheet(
 }
 
 @Composable
-fun BloodPressureCard(record: BloodPressureRecord) {
+fun BloodPressureCard(
+    record: BloodPressureRecord,
+    isSelected: Boolean = false,
+    modifier: Modifier = Modifier
+) {
     val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault())
     val timeStr = formatter.format(record.time)
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = "${record.systolic.inMillimetersOfMercury.toInt()} / ${record.diastolic.inMillimetersOfMercury.toInt()} mmHg",
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "${BpLabels.measurementLocations[record.measurementLocation]} • ${BpLabels.bodyPositions[record.bodyPosition]}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = timeStr,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
         }
     }
