@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.sumitgouthaman.bloodpressuretracker.data.DebugLogManager
 
 private const val TAG = "BpAiScan"
 
@@ -164,15 +165,23 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
             try {
                 val status = generativeModel.checkStatus()
                 Log.d(TAG, "generativeModel.checkStatus() returned: $status")
+                var baseModelName: String? = null
                 try {
-                    val baseModelName = generativeModel.getBaseModelName()
+                    baseModelName = generativeModel.getBaseModelName()
                     Log.d(TAG, "Active on-device base model name: $baseModelName")
                     if (!baseModelName.isNullOrEmpty()) {
                         _modelName.value = baseModelName
+                        DebugLogManager.logModelsFound(listOf(baseModelName))
+                    } else {
+                        DebugLogManager.logModelsFound(emptyList())
                     }
                 } catch (e: Exception) {
                     Log.d(TAG, "Could not retrieve base model name: ${e.localizedMessage}")
+                    DebugLogManager.logModelsFound(emptyList(), error = e.localizedMessage)
                 }
+
+                DebugLogManager.logModelCheck(status = status.toString(), baseModelName = baseModelName)
+
                 when (status) {
                     FeatureStatus.AVAILABLE -> {
                         Log.d(TAG, "Model is AVAILABLE on device.")
@@ -200,6 +209,8 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
                 Log.e(TAG, "Error checking AI model status", e)
                 _aiStatus.value = AiStatus.Unavailable
                 recheckJob?.cancel()
+                DebugLogManager.logModelCheck(status = "ERROR", error = e.localizedMessage ?: "Unknown error")
+                DebugLogManager.logError(TAG, "Failed to check AI model status", e)
             }
         }
     }
@@ -212,6 +223,7 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
                         is DownloadStatus.DownloadStarted -> {
                             Log.d(TAG, "Download started.")
                             _aiStatus.value = AiStatus.Downloading(0)
+                            DebugLogManager.logModelCheck("DOWNLOAD_STARTED")
                         }
                         is DownloadStatus.DownloadProgress -> {
                             Log.v(TAG, "Download progress: ${downloadStatus.totalBytesDownloaded} bytes")
@@ -221,16 +233,20 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
                             Log.i(TAG, "Download completed successfully! Model is now ready.")
                             _aiStatus.value = AiStatus.Available
                             recheckJob?.cancel()
+                            DebugLogManager.logModelCheck("DOWNLOAD_COMPLETED")
                         }
                         is DownloadStatus.DownloadFailed -> {
                             Log.e(TAG, "Download failed: $downloadStatus")
                             _aiStatus.value = AiStatus.Downloadable // Let them retry or check again later
+                            DebugLogManager.logModelCheck("DOWNLOAD_FAILED", error = "Status details: $downloadStatus")
+                            DebugLogManager.logError(TAG, "Model download failed: $downloadStatus")
                         }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Exception during download collection", e)
                 _aiStatus.value = AiStatus.Downloadable
+                DebugLogManager.logError(TAG, "Exception during download collection", e)
             }
         }
     }
@@ -240,15 +256,14 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
         viewModelScope.launch {
             _isScanning.value = true
             _scanError.value = null
+            val prompt = "You are a blood pressure readings extractor. Analyze the provided image of a blood pressure monitor screen.\n" +
+                    "Identify the systolic and diastolic numbers.\n" +
+                    "Format the output as JSON:\n" +
+                    "{\"systolic\": <number>, \"diastolic\": <number>}\n" +
+                    "If the image does not display a blood pressure monitor or the values cannot be reliably determined, respond exactly with:\n" +
+                    "{\"error\": \"Could not read blood pressure monitor\"}\n" +
+                    "Do not include any formatting like ```json or markdown. Output only the raw JSON."
             try {
-                val prompt = "You are a blood pressure readings extractor. Analyze the provided image of a blood pressure monitor screen.\n" +
-                        "Identify the systolic and diastolic numbers.\n" +
-                        "Format the output as JSON:\n" +
-                        "{\"systolic\": <number>, \"diastolic\": <number>}\n" +
-                        "If the image does not display a blood pressure monitor or the values cannot be reliably determined, respond exactly with:\n" +
-                        "{\"error\": \"Could not read blood pressure monitor\"}\n" +
-                        "Do not include any formatting like ```json or markdown. Output only the raw JSON."
-
                 Log.d(TAG, "Sending prompt and image to Gemini Nano...")
                 val response = generativeModel.generateContent(
                     generateContentRequest(ImagePart(bitmap), TextPart(prompt)) { }
@@ -272,21 +287,54 @@ class MainScreenViewModel(private val healthConnectManager: HealthConnectManager
                     Log.d(TAG, "Successfully parsed: systolic=$sys, diastolic=$dia")
                     if (sys != null && dia != null) {
                         onResult(sys, dia)
+                        DebugLogManager.logInferenceRequest(
+                            modelUsed = _modelName.value,
+                            promptText = prompt,
+                            responseReceived = text
+                        )
                     } else {
                         Log.w(TAG, "Parsed values are null")
                         _scanError.value = "Failed to parse blood pressure values from image."
+                        DebugLogManager.logInferenceRequest(
+                            modelUsed = _modelName.value,
+                            promptText = prompt,
+                            responseReceived = text,
+                            error = "Failed to parse blood pressure values from image (values were null)."
+                        )
+                        DebugLogManager.logError(TAG, "Parsed values are null in response: $text")
                     }
                 } else if (errMatch != null) {
                     val errMsg = errMatch.groupValues[1]
                     Log.w(TAG, "Model returned error in JSON: $errMsg")
                     _scanError.value = errMsg
+                    DebugLogManager.logInferenceRequest(
+                        modelUsed = _modelName.value,
+                        promptText = prompt,
+                        responseReceived = text,
+                        error = "Model error: $errMsg"
+                    )
+                    DebugLogManager.logError(TAG, "Model returned error in JSON: $errMsg")
                 } else {
                     Log.w(TAG, "No match found for systolic/diastolic or error in response.")
                     _scanError.value = "Could not extract blood pressure values from the image. Please make sure the image is clear and displays a blood pressure monitor."
+                    DebugLogManager.logInferenceRequest(
+                        modelUsed = _modelName.value,
+                        promptText = prompt,
+                        responseReceived = text,
+                        error = "Unrecognized response structure."
+                    )
+                    DebugLogManager.logError(TAG, "No match found for systolic/diastolic or error in response: $text")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing model or parsing response", e)
                 _scanError.value = "Error scanning image: ${e.localizedMessage}"
+                DebugLogManager.logInferenceRequest(
+                    modelUsed = _modelName.value,
+                    promptText = prompt,
+                    responseReceived = null,
+                    error = e.localizedMessage ?: e.toString()
+                )
+                DebugLogManager.logError(TAG, "Error executing model or parsing response", e)
             } finally {
                 _isScanning.value = false
             }

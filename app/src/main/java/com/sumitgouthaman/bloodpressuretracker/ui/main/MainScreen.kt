@@ -63,6 +63,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.MoreVert
+import com.sumitgouthaman.bloodpressuretracker.DebugMenu
 
 @Composable
 fun MainScreen(
@@ -117,7 +120,8 @@ fun MainScreen(
                     records = uiState.records,
                     onSave = { systolic, diastolic, pos, loc, time -> viewModel.saveBloodPressure(systolic, diastolic, pos, loc, time) },
                     onDelete = { ids -> viewModel.deleteRecords(ids) },
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onDebugClick = { onItemClick(DebugMenu) }
                 )
             }
             is MainScreenUiState.Error -> {
@@ -153,7 +157,8 @@ fun DashboardScreen(
     records: List<BloodPressureRecord>,
     onSave: (Double, Double, Int, Int, Instant) -> Unit,
     onDelete: (List<String>) -> Unit,
-    viewModel: MainScreenViewModel
+    viewModel: MainScreenViewModel,
+    onDebugClick: () -> Unit
 ) {
     val selectedRange by viewModel.selectedTimeRange.collectAsStateWithLifecycle()
     var showAddBottomSheet by remember { mutableStateOf(false) }
@@ -223,6 +228,33 @@ fun DashboardScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    var showMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("AI Debug Logs") },
+                                onClick = {
+                                    showMenu = false
+                                    onDebugClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.BugReport,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
