@@ -66,6 +66,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.MoreVert
 import com.sumitgouthaman.bloodpressuretracker.DebugMenu
+import com.sumitgouthaman.bloodpressuretracker.MainActivity
+import com.sumitgouthaman.bloodpressuretracker.data.ReminderManager
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
+import android.Manifest
+import java.util.Calendar
+import android.os.Build
 
 @Composable
 fun MainScreen(
@@ -160,11 +167,56 @@ fun DashboardScreen(
     viewModel: MainScreenViewModel,
     onDebugClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) {
+        var ctx = context
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is MainActivity) {
+                break
+            }
+            ctx = ctx.baseContext
+        }
+        ctx as? MainActivity
+    }
+    val shortcutAction by activity?.shortcutAction?.collectAsStateWithLifecycle(initialValue = null) ?: remember { mutableStateOf(null) }
+    var autoLaunchCamera by remember { mutableStateOf(false) }
+
     val selectedRange by viewModel.selectedTimeRange.collectAsStateWithLifecycle()
     var showAddBottomSheet by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showReminderDialog by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
+
+    val reminderManager = remember(context) { ReminderManager(context) }
+    var reminderEnabled by remember { mutableStateOf(reminderManager.isEnabled()) }
+    var reminderHour by remember { mutableStateOf(reminderManager.getHour()) }
+    var reminderMinute by remember { mutableStateOf(reminderManager.getMinute()) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) {
+                reminderEnabled = true
+                reminderManager.saveReminderSettings(true, reminderHour, reminderMinute)
+            }
+        }
+    )
+
+    LaunchedEffect(shortcutAction) {
+        when (shortcutAction) {
+            "manually" -> {
+                autoLaunchCamera = false
+                showAddBottomSheet = true
+                activity?.clearShortcutAction()
+            }
+            "camera" -> {
+                autoLaunchCamera = true
+                showAddBottomSheet = true
+                activity?.clearShortcutAction()
+            }
+        }
+    }
 
     if (selectedIds.isNotEmpty()) {
         BackHandler {
@@ -240,6 +292,19 @@ fun DashboardScreen(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Daily Reminder") },
+                                onClick = {
+                                    showMenu = false
+                                    showReminderDialog = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.AccessTime,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("AI Debug Logs") },
                                 onClick = {
@@ -402,11 +467,110 @@ fun DashboardScreen(
         )
     }
 
+    if (showReminderDialog) {
+        AlertDialog(
+            onDismissRequest = { showReminderDialog = false },
+            title = { Text("Daily Reminder") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("Get notified to track your blood pressure daily.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Reminder Notification",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (reminderEnabled) {
+                                val formattedTime = remember(reminderHour, reminderMinute) {
+                                    val calendar = Calendar.getInstance().apply {
+                                        set(Calendar.HOUR_OF_DAY, reminderHour)
+                                        set(Calendar.MINUTE, reminderMinute)
+                                    }
+                                    val isPm = reminderHour >= 12
+                                    val hour12 = when {
+                                        reminderHour == 0 -> 12
+                                        reminderHour > 12 -> reminderHour - 12
+                                        else -> reminderHour
+                                    }
+                                    String.format(Locale.getDefault(), "%d:%02d %s", hour12, reminderMinute, if (isPm) "PM" else "AM")
+                                }
+                                Text(
+                                    text = "Scheduled daily at $formattedTime (Tap to change)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable {
+                                        android.app.TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                reminderHour = hour
+                                                reminderMinute = minute
+                                                reminderManager.saveReminderSettings(true, hour, minute)
+                                            },
+                                            reminderHour,
+                                            reminderMinute,
+                                            false
+                                        ).show()
+                                    }
+                                )
+                            } else {
+                                Text(
+                                    text = "Disabled",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = reminderEnabled,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        val hasPermission = ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (hasPermission) {
+                                            reminderEnabled = true
+                                            reminderManager.saveReminderSettings(true, reminderHour, reminderMinute)
+                                        } else {
+                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    } else {
+                                        reminderEnabled = true
+                                        reminderManager.saveReminderSettings(true, reminderHour, reminderMinute)
+                                    }
+                                } else {
+                                    reminderEnabled = false
+                                    reminderManager.saveReminderSettings(false, reminderHour, reminderMinute)
+                                }
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showReminderDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
     if (showAddBottomSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         
         ModalBottomSheet(
-            onDismissRequest = { showAddBottomSheet = false },
+            onDismissRequest = { 
+                showAddBottomSheet = false
+                autoLaunchCamera = false
+            },
             sheetState = sheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
             containerColor = MaterialTheme.colorScheme.surface
@@ -416,9 +580,14 @@ fun DashboardScreen(
                 onSave = { systolic, diastolic, pos, loc, time ->
                     onSave(systolic, diastolic, pos, loc, time)
                     showAddBottomSheet = false
+                    autoLaunchCamera = false
                 },
                 viewModel = viewModel,
-                onDismiss = { showAddBottomSheet = false }
+                onDismiss = { 
+                    showAddBottomSheet = false
+                    autoLaunchCamera = false
+                },
+                autoLaunchCamera = autoLaunchCamera
             )
         }
     }
@@ -855,7 +1024,8 @@ fun AddRecordFormSheet(
     records: List<BloodPressureRecord>,
     onSave: (Double, Double, Int, Int, Instant) -> Unit,
     viewModel: MainScreenViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    autoLaunchCamera: Boolean = false
 ) {
     var systolic by remember { mutableStateOf("") }
     var diastolic by remember { mutableStateOf("") }
@@ -910,6 +1080,23 @@ fun AddRecordFormSheet(
             }
         }
     )
+
+    var hasAutoLaunched by remember { mutableStateOf(false) }
+    LaunchedEffect(autoLaunchCamera) {
+        if (autoLaunchCamera && !hasAutoLaunched) {
+            hasAutoLaunched = true
+            viewModel.clearScanError()
+            try {
+                val file = File(context.cacheDir, "bp_scan_temp.jpg")
+                photoFile = file
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                photoUri = uri
+                cameraLauncher.launch(uri)
+            } catch (e: Exception) {
+                // Handled
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
