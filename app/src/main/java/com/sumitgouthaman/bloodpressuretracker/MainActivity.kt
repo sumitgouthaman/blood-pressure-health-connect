@@ -39,6 +39,20 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  override fun onResume() {
+    super.onResume()
+    cancelNotification()
+  }
+
+  private fun cancelNotification() {
+    try {
+      val notificationManager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+      notificationManager.cancel(ReminderReceiver.NOTIFICATION_ID)
+    } catch (e: java.lang.Exception) {
+      // Ignored
+    }
+  }
+
   fun clearShortcutAction() {
     _shortcutAction.value = null
   }

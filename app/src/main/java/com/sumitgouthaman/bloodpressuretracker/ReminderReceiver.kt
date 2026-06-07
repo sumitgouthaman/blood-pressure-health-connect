@@ -22,6 +22,10 @@ import kotlinx.coroutines.launch
 
 class ReminderReceiver : BroadcastReceiver() {
 
+    companion object {
+        const val NOTIFICATION_ID = 1
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         Log.d("ReminderReceiver", "onReceive triggered with action: $action")
@@ -109,7 +113,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 }
 
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(1, builder.build())
+                notificationManager.notify(NOTIFICATION_ID, builder.build())
             } catch (e: Exception) {
                 Log.e("ReminderReceiver", "Error building or showing notification", e)
             } finally {
